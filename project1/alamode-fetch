@@ -1,0 +1,80 @@
+#/bin/bash
+
+chose_N_or_F=false
+N_or_F_switch=false
+
+function do_host {
+	echo "Doing host $1"
+	ssh -n $1 "echo '# users logged in: ' && who | wc -l && echo 'Cureent processes: ' && ps -aux && echo 'Average system loads' && cat '/proc/loadavg' &&  exit" > $DIRECTORYNAME/$1.txt
+}
+
+function do_file {
+	echo "Doing file $1"
+	
+	cat $1 | while read line; do
+		do_host $line
+	done
+}
+
+function do_directories {
+	if [ "$has_directory" = true ] ; then
+		mkdir -p $DIRECTORYNAME
+        else
+                DIRECTORYNAME=`mktemp -dp /tmp/host_info` || exit 1
+        fi
+        echo $DIRECTORYNAME
+}
+
+while getopts "n:f:d:" OPTIONS; do
+	case $OPTIONS in
+		n)
+			if [ "$chose_N_or_F" = false ] ; then
+				HOSTNAME=$OPTARG
+				chose_N_or_F=true
+				N_or_F_switch=true
+			else
+				echo "Cannot use -n and -f concurrently"
+				exit 1
+			fi
+			;;
+		d)
+			DIRECTORYNAME=$OPTARG
+			has_directory=true
+			;;
+		f)
+			if [ "$chose_N_or_F" = false ] ; then
+				FILENAME=$OPTARG
+				chose_N_or_F=true
+				N_or_F_switch=false
+			else
+				echo "Cannot use -n and -f concurrently"
+				exit 1
+			fi
+			;;
+		\?)
+			echo "usage: $0 [-d directory (OPTIONAL)] [-n IP or hostname] or [-f file containing names of IPs]"
+			exit 1
+			;;
+	esac
+done
+
+#Set up directories first
+do_directories
+
+#Deal with n or f options
+if [ "$chose_N_or_F" = true ] ; then
+	#do if valid options
+	if [ "$N_or_F_switch" = true ] ; then
+		#do for n option
+		echo "Doing n option"
+		do_host $HOSTNAME
+	else
+		#do for f option
+		echo "Doing f option"
+		do_file $FILENAME
+	fi
+else
+	#do if required options not chose
+	echo "usage: $0 [-d directory (OPTIONAL)] [-n IP or hostname] or [-f file containing names of IPs]"
+	exit 1
+fi
