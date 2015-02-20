@@ -4,6 +4,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <fstream>
 
 #include <readline/readline.h>
 #include <readline/history.h>
@@ -20,6 +21,7 @@
 //   #include <sys/types.h>
 //   #include <sys/wait.h>
 #include <unistd.h>
+#include <stdio.h>
 
 using namespace std;
 
@@ -39,15 +41,149 @@ map<string, command> builtins;
 // Variables local to the shell
 map<string, string> localvars;
 
-
+int execute_line(vector<string>& tokens, map<string, command>& builtins);
 
 // Handles external commands, redirects, and pipes.
-int execute_external_command(vector<string> tokens) {
+int execute_external_command(vector<string>& tokens) {
     vector<string> sub_tokens;
-    string s1 = "&|<>";
-    for (vector<string>::iterator it = tokens.begin(); it != tokens.end(); ++it){
+    //string s1 = "&|<>";
+    bool has_input = false;
+
+    /*for (vector<string>::iterator it = tokens.begin(); it != tokens.end(); ++it){
         cout << *it << " " <<  endl;
+    }*/  
+
+    // ls < dir.txt
+    int index = 0;
+    string filename = "";
+    string mode = "";
+    for (vector<string>::iterator it2 = tokens.begin(); it2 != tokens.end(); ++it2){
+        if (*it2 == "<" || *it2 == ">" || *it2 == ">>"){
+            filename = tokens[index + 1];
+            mode = tokens[index];
+        }
+        else{
+            index = index + 1;
+        }
     }
+
+    //fix the tokens vector
+    vector<string> part1, part2;
+    bool fillswitch = false;
+
+    //if there's a pipe, this will do nothing
+    for (vector<string>::iterator it3 = tokens.begin(); it3 != tokens.end(); ++it3){
+        if (!fillswitch){
+            if (*it3 == mode){
+                fillswitch = true;
+                ++it3;
+            }
+            else {
+                part1.push_back(*it3);
+                //cout << "Part1: " << *it3 << endl;
+            }
+        }
+        else {
+            part2.push_back(*it3);
+            //cout << "Part2: " << *it3 << endl;
+        }
+    }
+
+    int the_pipe[2];
+    if (pipe(the_pipe) < 0){
+        perror("opening pipe");
+        return(-1);
+    }
+    pid_t pidnum = fork();
+    //cout << pidnum << endl;
+
+    if (pidnum == -1){
+        perror("fork failed");
+        exit(EXIT_FAILURE);
+    }
+    else if (pidnum == 0){
+        //Do file operations here?
+        if (mode == "<"){
+            string inputstr = "";
+            ifstream inFile;
+            inFile.open(filename);
+            if (!inFile) perror("File does not exist!");
+            else {
+                string line = "";
+                while (getline(inFile, line)){
+                    cout << line << endl;
+                    inputstr = inputstr + line;
+                }
+            }
+            //part1.pop_back();
+            //part1.pop_back();
+            
+            part1.push_back(inputstr);
+            
+            /*for (vector<string>::iterator it = part1.begin(); it != part1.end(); ++it){
+                cout << "|" << *it << "|" << endl;
+            }*/
+            
+            
+            inFile.close();
+            execute_line(part1, builtins);
+        }
+        else if (mode == ">" || mode == ">>"){
+            stringstream buffer;
+            streambuf * old = cout.rdbuf(buffer.rdbuf());
+
+            execute_line(part1, builtins);
+
+            string datastr = buffer.str();
+
+            ofstream outfile;
+            if (mode == ">")
+                outfile.open(filename, ios::trunc);
+            else
+                outfile.open(filename, ios::app);
+
+            outfile << datastr;
+            outfile.close();
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            //write_to_file(filename, mode);
+
+        }
+        close(the_pipe[0]);
+        close(the_pipe[1]);
+        _exit(EXIT_SUCCESS);
+    }
+    else {
+        //The parent process
+        cout << "Forked to: " << pidnum << endl;
+        if (part2.size() > 0){
+            //cout << "ENEFFEE" << endl;
+            execute_line(part2, builtins);
+        }
+        //int status;
+        //waitpid(pidnum, &status, 0);
+    }
+
+    /*for (vector<string>::iterator it = tokens.begin(); it != tokens.end(); ++it){
+          if (*it == "|"){
+              ++it;
+              for (vector<string>::iterator it2 = it; it2 != tokens.end(); ++it2){
+                   sub_tokens.insert(it2, 0);
+               }
+
+                execute_line(sub_tokens, builtins);
+            
+          }
+    }*/
 
    return 0;
 }
@@ -172,12 +308,32 @@ int execute_line(vector<string>& tokens, map<string, command>& builtins) {
   int return_value = 0;
 
   if (tokens.size() != 0) {
-    map<string, command>::iterator cmd = builtins.find(tokens[0]);
+      //if it needs forking?
+      //vector<string> syms = {"<", "|", "&", ">", ">>"};
+      
+      vector<string> syms;
+      bool redirecting = false;
+      syms.push_back("<");
+      syms.push_back("|");
+      syms.push_back("&");
+      syms.push_back(">");
+      syms.push_back(">>");
 
-    if (cmd == builtins.end()) {
-      return_value = execute_external_command(tokens);
-    } else {
-      return_value = ((*cmd->second)(tokens));
+      for(vector<string>::iterator it = tokens.begin(); it != tokens.end(); ++it){
+        if (find(syms.begin(), syms.end(), *it) != syms.end()){
+            redirecting = true;
+            execute_external_command(tokens);    
+        }
+      }
+    //execute_external_command(tokens);
+    if (!redirecting){
+        map<string, command>::iterator cmd = builtins.find(tokens[0]);
+        if (cmd == builtins.end()) {
+            //where we fork stuff
+        return_value = execute_external_command(tokens);
+        } else {
+        return_value = ((*cmd->second)(tokens));
+        }
     }
   }
 

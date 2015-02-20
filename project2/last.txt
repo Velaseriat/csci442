@@ -1,0 +1,6 @@
+.
+..
+.DS_Store
+last.txt
+shell_outline
+shell_outline.tgz
